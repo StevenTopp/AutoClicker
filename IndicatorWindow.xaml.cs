@@ -60,9 +60,19 @@ namespace AutoClicker
             
             this.PointId = pointId;
             
-            // Set initial position centered over target coordinates (Width=60, Height=60)
-            this.Left = screenX - 30;
-            this.Top = screenY - 30;
+            // Convert physical coordinates to logical coordinates using DPI scaling
+            double scaleX = 1.0;
+            double scaleY = 1.0;
+            try
+            {
+                var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(System.Windows.Application.Current.MainWindow ?? this);
+                scaleX = dpi.DpiScaleX;
+                scaleY = dpi.DpiScaleY;
+            }
+            catch { }
+
+            this.Left = (screenX / scaleX) - 30;
+            this.Top = (screenY / scaleY) - 30;
             
             SetNumber(number);
             SetStyle(styleType);
@@ -155,8 +165,18 @@ namespace AutoClicker
 
         public void UpdatePosition(double screenX, double screenY)
         {
-            this.Left = screenX - 30;
-            this.Top = screenY - 30;
+            double scaleX = 1.0;
+            double scaleY = 1.0;
+            try
+            {
+                var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(System.Windows.Application.Current.MainWindow ?? this);
+                scaleX = dpi.DpiScaleX;
+                scaleY = dpi.DpiScaleY;
+            }
+            catch { }
+
+            this.Left = (screenX / scaleX) - 30;
+            this.Top = (screenY / scaleY) - 30;
         }
 
         public void TriggerHighlight()
