@@ -1018,7 +1018,10 @@ select:focus {
             <!-- 全局配置卡片 -->
             <section class="panel-card global-settings">
                 <div class="card-header">
-                    <span class="card-title">点击模式配置</span>
+                    <span class="card-title" style="display: flex; align-items: center; gap: 8px;">
+                        <span class="pulse-indicator" id="status-pulse"></span>
+                        点击模式配置
+                    </span>
                     <span class="card-badge" id="status-badge">已就绪</span>
                 </div>
                 <div class="settings-row">
@@ -1343,7 +1346,7 @@ function updateUIStates() {
         el.clickModeSelect.disabled = true;
         el.btnSettings.disabled = true;
         
-        el.statusPulse.className = 'pulse-indicator running';
+        if (el.statusPulse) el.statusPulse.className = 'pulse-indicator running';
         el.statusBadge.className = 'card-badge active';
         el.statusBadge.textContent = '连点中';
         updateStatusBar(`后台任务高频连点中... 按 [${hotkeySettings.clickToggle.key}] 或点击停止。`, 'running');
@@ -1361,7 +1364,7 @@ function updateUIStates() {
         el.btnClearAll.disabled = true;
         el.btnSettings.disabled = true;
         
-        el.statusPulse.className = 'pulse-indicator capturing';
+        if (el.statusPulse) el.statusPulse.className = 'pulse-indicator capturing';
         el.statusBadge.className = 'card-badge';
         el.statusBadge.textContent = '采点中';
         
@@ -1387,7 +1390,7 @@ function updateUIStates() {
         el.clickModeSelect.disabled = false;
         el.btnSettings.disabled = false;
         
-        el.statusPulse.className = 'pulse-indicator';
+        if (el.statusPulse) el.statusPulse.className = 'pulse-indicator';
         el.statusBadge.className = 'card-badge';
         el.statusBadge.textContent = '已就绪';
         
