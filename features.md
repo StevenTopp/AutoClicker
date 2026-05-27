@@ -73,3 +73,18 @@
 *   **源码分支**：`dev` 特性开发分支
 *   **本地 Release Standalone 独立版目录**：`D:\Code\projects\AutoClicker_Standalone`
     *   包含了免安装的独立运行包，双击 `AutoClicker.exe` 即可运行。
+
+---
+
+## 🐞 9. 深度缺陷修复与实时日志面板 (v1.2.1 升级版)
+为了解决用户反馈的点击阻碍以及连点器运行“黑盒”问题，我们在 v1.2.1 中追加了三项重磅底层改进：
+*   **64位指针安全 P/Invoke 鼠标穿透 (WS_EX_TRANSPARENT 修复)**：
+    *   解决了 64 位 .NET 8 运行时环境下由于 `SetWindowLongPtr`（EntryPoint 指定为 "SetWindowLongPtr"）在 `user32.dll` 中无直接导出，导致抛出 `EntryPointNotFoundException` 或穿透注入静默失败的顽疾。
+    *   将入口点精准指向真实导出的 **`SetWindowLongPtrW`** 和 **`GetWindowLongPtrW`**，实现 100% 成功注入 `WS_EX_TRANSPARENT`（鼠标穿透）和 `WS_EX_NOACTIVATE`（非激活置顶）样式，**彻底解决了红圈和数字遮挡屏幕导致无法点击的问题**。
+*   **置顶采点冲突瞬间拦截 (F7 Topmost Capture Bypass)**：
+    *   解决了在多点采点过程中，鼠标悬停在已有的置顶红圈指示器之上按下 `F7` 会被 `WindowFromPoint` 拦截导致误捕获红圈自身句柄、引起点击紊乱的严重逻辑缺陷。
+    *   引入了 **“瞬间闪避”** 机制：在按下 `F7` 捕获的毫秒瞬间，主线程会批量隐藏（`.Hide()`）所有已显示的红圈指示器，完成 `WindowFromPoint` 对目标软件的句柄抓取后，瞬间恢复显示（`.Show()`），实现 100% 零误差精准捕获。
+*   **实时毛玻璃运行日志面板 (Real-Time Glassmorphic Logs Panel)**：
+    *   **一目了然的系统透明度**：在主界面下方设计了一个高度为 160px、高度契合毛玻璃霓虹风格的“实时运行日志”终端。
+    *   **C# 消息网桥实时回传**：C# 底层在执行每一发 `PostMessage` 投递、进行前台物理点击、或者检测到目标句柄失效（IsWindow=False）降级时，都会产生高清晰度运行日志，不仅写入 `debug.log`，还同步推送到 WebView2 网页前端。
+    *   **高级语义自动着色**：JS 接收日志并自动为状态关键字上色：绿色代表“成功/投递完成/热键成功”，红色代表“降级点击/异常/失效”，蓝色代表“高频点击运行”，紫色代表“初始化与保存”。支持一键清空和极致顺滑的自动滚底。
