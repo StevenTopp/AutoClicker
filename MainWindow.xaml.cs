@@ -661,6 +661,11 @@ namespace AutoClicker
                             }
                         });
                     }
+                    else if (action == "log_error")
+                    {
+                        string errMsg = root.GetProperty("message").GetString() ?? "";
+                        Log($"[WebView2 JS 异常] {errMsg}");
+                    }
                 }
             }
             catch (Exception ex)

@@ -1105,6 +1105,23 @@ select:focus {
     </div>
 
     <script>
+// 全局异常捕获，直接将 JS 错误发送给 C# 后端日志
+window.onerror = function(message, source, lineno, colno, error) {
+    const errText = `[JS Error] ${message} at ${source}:${lineno}:${colno}`;
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({ action: 'log_error', message: errText }));
+    }
+    console.error(errText);
+    return false;
+};
+window.addEventListener('unhandledrejection', function(event) {
+    const errText = `[JS Promise Error] ${event.reason}`;
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({ action: 'log_error', message: errText }));
+    }
+    console.error(errText);
+});
+
 /**
  * 自动点击器前端核心状态与交互逻辑 (C# WebView2 禁用与高亮增强版)
  */
@@ -1279,19 +1296,19 @@ function renderPoints() {
             : `绝对 (${pt.x}, ${pt.y})`;
 
         // 眼睛开关按钮 HTML 串 (Enabled 状态双向渲染)
+        const eyeSvg = pt.enabled ? 
+            `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+            </svg>` : 
+            `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-muted);">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+            </svg>`;
+
         const eyeButtonHtml = `
             <button class="btn-eye-toggle" title="${pt.enabled ? '禁用此连点' : '启用此连点'}" onclick="togglePointEnabled(${pt.id}, event)">
-                ${pt.enabled ? `
-                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                        <circle cx="12" cy="12" r="3"></circle>
-                    </svg>
-                ` : `
-                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-muted);">
-                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                        <line x1="1" y1="1" x2="23" y2="23"></line>
-                    </svg>
-                `}
+                ${eyeSvg}
             </button>
         `;
 
