@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能后台鼠标连点器</title>
+    <!-- 引入 Outfit 与 Inter 字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 头部标题栏 -->
+        <header class="app-header">
+            <div class="logo-area">
+                <img src="app_icon.png" class="app-logo-img" alt="logo">
+                <div class="pulse-indicator" id="status-pulse"></div>
+                <div class="title-group">
+                    <h1>AutoClicker</h1>
+                    <p class="subtitle">智能后台鼠标连点器</p>
+                </div>
+            </div>
+            <div class="shortcuts-tag">
+                <span>F8 启动 | F9 停止</span>
+            </div>
+        </header>
+
+        <!-- 主面板 -->
+        <main class="app-main">
+            <!-- 全局配置卡片 -->
+            <section class="panel-card global-settings">
+                <div class="card-header">
+                    <span class="card-title">点击模式配置</span>
+                    <span class="card-badge" id="status-badge">已就绪</span>
+                </div>
+                <div class="settings-row">
+                    <div class="setting-item">
+                        <label for="click-mode-select">多点执行逻辑</label>
+                        <div class="select-wrapper">
+                            <select id="click-mode-select">
+                                <option value="sequential" selected>顺序循环点击 (轮流点击各个位置)</option>
+                                <option value="independent">独立并发点击 (各点按各自频率并发)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-primary glow-button btn-full" id="btn-capture">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M12 2v4M12 18v4M2 12h4M18 12h4"></path>
+                    </svg>
+                    捕获目标位置 (悬停并按 F7)
+                </button>
+                <p class="hint-text">点击后应用会最小化。请移动并【悬停】在目标软件的点击位置上，按下键盘 [F7] 键即可完成捕获！</p>
+            </section>
+
+            <!-- 点击目标点列表 -->
+            <section class="panel-card points-section">
+                <div class="card-header">
+                    <span class="card-title">点击位置列表 (<span id="points-count">0</span>)</span>
+                    <button class="btn btn-text text-danger" id="btn-clear-all">全部清空</button>
+                </div>
+                
+                <div class="points-list" id="points-list-container">
+                    <!-- 暂无数据占位 -->
+                    <div class="empty-state" id="empty-state">
+                        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="2" y="2" width="20" height="20" rx="4" ry="4"></rect>
+                            <path d="M12 8v8M8 12h8"></path>
+                        </svg>
+                        <p>暂无点击位置</p>
+                        <span>请点击上方“捕获目标位置”进行添加</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- 底部操作栏 -->
+        <footer class="app-footer">
+            <div class="actions-group">
+                <button class="btn btn-success btn-action" id="btn-start">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                    开始点击 (F8)
+                </button>
+                <button class="btn btn-danger btn-action" id="btn-stop" disabled>
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+                    </svg>
+                    停止点击 (F9)
+                </button>
+            </div>
+            <div class="status-bar">
+                <span class="status-text" id="status-bar-text">准备就绪。支持多个位置独立配置。</span>
+                <span class="version-text">v1.2.0</span>
+            </div>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
