@@ -1062,6 +1062,20 @@ select:focus {
                     </div>
                 </div>
             </section>
+
+            <!-- 实时运行日志 -->
+            <section class="panel-card logs-section" style="margin-top: 12px; height: 160px; display: flex; flex-direction: column; padding: 12px 16px;">
+                <div class="card-header" style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                    <span class="card-title" style="font-size: 13px; display: flex; align-items: center; gap: 6px; margin-bottom: 0;">
+                        <span class="pulse-indicator running" style="width: 6px; height: 6px; animation: none; background-color: var(--color-secondary); box-shadow: 0 0 6px var(--color-secondary);"></span>
+                        实时运行日志
+                    </span>
+                    <button class="btn btn-text text-danger" id="btn-clear-logs" style="font-size: 11px; padding: 2px 6px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 4px;">清空</button>
+                </div>
+                <div id="logs-container" style="flex: 1; overflow-y: auto; padding: 8px 10px; font-family: 'Consolas', 'Courier New', monospace; font-size: 10.5px; color: var(--text-secondary); background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.03); border-radius: 8px; line-height: 1.6; word-break: break-all; scroll-behavior: smooth;">
+                    <div style="color: var(--text-muted);">[系统] 连点器日志监视已就绪...</div>
+                </div>
+            </section>
         </main>
 
         <!-- 底部操作栏 -->
@@ -1174,6 +1188,14 @@ document.addEventListener('DOMContentLoaded', () => {
     el.btnCloseSettings.addEventListener('click', closeSettings);
     el.btnSaveSettings.addEventListener('click', saveSettings);
     el.btnResetSettings.addEventListener('click', resetSettingsToDefault);
+
+    // 绑定清空日志事件
+    document.getElementById('btn-clear-logs').addEventListener('click', () => {
+        const container = document.getElementById('logs-container');
+        if (container) {
+            container.innerHTML = '<div style="color: var(--text-muted);">[系统] 日志已清空。</div>';
+        }
+    });
     
     // 样式选择卡片
     el.styleCards.forEach(card => {
@@ -1453,11 +1475,39 @@ function handleHostMessage(msg) {
                 }
             }
             break;
+
+        case "log":
+            if (msg.message) {
+                addLogToPanel(msg.message);
+            }
+            break;
     }
 }
 
 function syncPointsToHost() {
     sendToHost("sync_points", { points: JSON.stringify(state.points) });
+}
+
+function addLogToPanel(msg) {
+    const container = document.getElementById('logs-container');
+    if (!container) return;
+    const logItem = document.createElement('div');
+    logItem.textContent = msg;
+    logItem.style.marginBottom = '2px';
+    
+    // Auto-colorize based on message content
+    if (msg.includes('成功') || msg.includes('True') || msg.includes('完成')) {
+        logItem.style.color = '#10b981'; // var(--color-success)
+    } else if (msg.includes('异常') || msg.includes('失败') || msg.includes('False') || msg.includes('失效') || msg.includes('降级')) {
+        logItem.style.color = '#ef4444'; // var(--color-danger)
+    } else if (msg.includes('运行中') || msg.includes('连点') || msg.includes('工作线程')) {
+        logItem.style.color = '#00f0ff'; // var(--color-secondary)
+    } else if (msg.includes('准备就绪') || msg.includes('初始化') || msg.includes('保存') || msg.includes('加载')) {
+        logItem.style.color = '#8b5cf6'; // var(--color-primary)
+    }
+    
+    container.appendChild(logItem);
+    container.scrollTop = container.scrollHeight;
 }
 
 // ==========================================================================

@@ -348,7 +348,24 @@ namespace AutoClicker
                     POINT screenPos;
                     if (GetCursorPos(out screenPos))
                     {
+                        // 临时隐藏所有指示器红圈，防止 WindowFromPoint 误捕获它们
+                        var visibleIndicators = _indicatorWindows.Where(w => w.Visibility == Visibility.Visible).ToList();
+                        foreach (var win in visibleIndicators)
+                        {
+                            win.Hide();
+                        }
+                        
+                        // 极短延迟以确保系统更新窗口布局
+                        Thread.Sleep(10);
+                        
                         IntPtr targetHwnd = WindowFromPoint(screenPos);
+                        
+                        // 瞬间还原所有指示器显示
+                        foreach (var win in visibleIndicators)
+                        {
+                            win.Show();
+                        }
+
                         if (targetHwnd != IntPtr.Zero)
                         {
                             IntPtr rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
@@ -801,18 +818,21 @@ namespace AutoClicker
 
         private void ExecuteSingleClick(ClickPoint pt)
         {
+            Log($"执行连点: 点位ID={pt.Id}, 标题='{pt.Title}', Hwnd=0x{pt.Hwnd:X}, 坐标=({pt.X}, {pt.Y}), 模式={pt.ClickMode}");
             if (pt.ClickMode == "background")
             {
                 IntPtr hwnd = new IntPtr(pt.Hwnd);
                 if (IsWindow(hwnd))
                 {
                     IntPtr lParam = (IntPtr)((pt.YRel << 16) | (pt.XRel & 0xFFFF));
-                    PostMessage(hwnd, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, lParam);
+                    bool resDown = PostMessage(hwnd, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, lParam);
                     Thread.Sleep(10);
-                    PostMessage(hwnd, WM_LBUTTONUP, IntPtr.Zero, lParam);
+                    bool resUp = PostMessage(hwnd, WM_LBUTTONUP, IntPtr.Zero, lParam);
+                    Log($"后台点击投递完成: Hwnd=0x{hwnd:X}, Down={resDown}, Up={resUp}, 相对坐标=({pt.XRel}, {pt.YRel})");
                 }
                 else
                 {
+                    Log($"句柄 0x{hwnd:X} 已失效 (IsWindow=False)，自动降级为前台物理点击。");
                     ActivePhysicalClick(pt.X, pt.Y);
                 }
             }
@@ -829,13 +849,15 @@ namespace AutoClicker
                 POINT origPos;
                 GetCursorPos(out origPos);
                 
-                SetCursorPos(x, y);
+                bool setCursorRes = SetCursorPos(x, y);
                 mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
                 Thread.Sleep(10);
                 mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
                 
                 Thread.Sleep(10);
-                SetCursorPos(origPos.X, origPos.Y);
+                bool restoreCursorRes = SetCursorPos(origPos.X, origPos.Y);
+                
+                Log($"前台物理点击完成: 目标=({x}, {y}), SetCursor={setCursorRes}, 还原={restoreCursorRes}");
             }
             catch (Exception ex)
             {
@@ -878,8 +900,17 @@ namespace AutoClicker
         {
             try
             {
+                string formatted = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
+                
+                // 1. 写入本地调试日志文件
                 string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
-                System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}\r\n");
+                System.IO.File.AppendAllText(logPath, formatted + "\r\n");
+                
+                // 2. 实时通过网桥发送给前端网页端展示
+                Dispatcher.Invoke(() =>
+                {
+                    SendToJs(new { type = "log", message = formatted });
+                });
             }
             catch { }
         }
