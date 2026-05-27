@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
+using System.Linq;
 using Microsoft.Web.WebView2.Core;
 
 namespace AutoClicker
@@ -75,29 +76,32 @@ namespace AutoClicker
         private const uint MOUSEEVENTF_LEFTUP = 0x0004;
 
         private const int WM_HOTKEY = 0x0312;
-        private const uint MOD_NONE = 0x0000;
         
-        // 键码常量
-        private const uint VK_F7 = 0x76;
-        private const uint VK_F8 = 0x77;
-        private const uint VK_F9 = 0x78;
-
-        // 热键 ID
-        private const int HOTKEY_ID_CAPTURE = 777;
-        private const int HOTKEY_ID_START = 888;
-        private const int HOTKEY_ID_STOP = 999;
+        // 默认热键 ID
+        private const int HOTKEY_ID_CAPTURE_START = 1001;
+        private const int HOTKEY_ID_CAPTURE_POINT = 1002;
+        private const int HOTKEY_ID_CLICK_TOGGLE = 1003;
+        private const int HOTKEY_ID_CLEAR_ALL = 1004;
 
         // --------------------------------------------------------------------------
         // CLASS VARIABLES
         // --------------------------------------------------------------------------
         
         private IntPtr _windowHandle;
-        private HwndSource _hwndSource;
+        private HwndSource? _hwndSource;
         private bool _isCapturing = false;
         private bool _isClicking = false;
         private List<Thread> _clickThreads = new List<Thread>();
         private List<ClickPoint> _clickPoints = new List<ClickPoint>();
+        private List<IndicatorWindow> _indicatorWindows = new List<IndicatorWindow>();
         private string _clickMode = "sequential"; // "sequential" or "independent"
+        private int _indicatorStyle = 2; // 默认 Option 2 空心圆环
+
+        // 默认全局热键配置
+        private HotkeyConfig _configCaptureStart = new HotkeyConfig { Key = "F7", Modifiers = "Ctrl+Alt" };
+        private HotkeyConfig _configCapturePoint = new HotkeyConfig { Key = "F7", Modifiers = "None" };
+        private HotkeyConfig _configClickToggle = new HotkeyConfig { Key = "F8", Modifiers = "None" };
+        private HotkeyConfig _configClearAll = new HotkeyConfig { Key = "F9", Modifiers = "Ctrl+Alt" };
 
         public MainWindow()
         {
@@ -115,7 +119,7 @@ namespace AutoClicker
                 // 绑定消息接收事件
                 webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
                 
-                // 加载内嵌前端自包含网页
+                // 加载内嵌前端网页
                 string htmlContent = GetEmbeddedHtml();
                 webView.CoreWebView2.NavigateToString(htmlContent);
                 Log("WebView2 成功加载并展示内嵌网页。");
@@ -133,7 +137,7 @@ namespace AutoClicker
             {
                 var assembly = System.Reflection.Assembly.GetExecutingAssembly();
                 string resourceName = "AutoClicker.web.index.html";
-                using (System.IO.Stream stream = assembly.GetManifestResourceStream(resourceName))
+                using (System.IO.Stream? stream = assembly.GetManifestResourceStream(resourceName))
                 {
                     if (stream == null)
                     {
@@ -162,22 +166,25 @@ namespace AutoClicker
             _hwndSource = HwndSource.FromHwnd(_windowHandle);
             _hwndSource.AddHook(HwndHook);
 
-            // 注册默认启动与停止热键
-            RegisterHotKey(_windowHandle, HOTKEY_ID_START, MOD_NONE, VK_F8);
-            RegisterHotKey(_windowHandle, HOTKEY_ID_STOP, MOD_NONE, VK_F9);
+            // 注册默认全局快捷键
+            RegisterAllCustomHotkeys();
         }
 
         protected override void OnClosed(EventArgs e)
         {
-            // 窗体关闭时卸载钩子和注销热键
+            // 窗体关闭时卸载所有指示器窗口
             StopClicking();
             
-            UnregisterHotKey(_windowHandle, HOTKEY_ID_START);
-            UnregisterHotKey(_windowHandle, HOTKEY_ID_STOP);
-            if (_isCapturing)
-            {
-                UnregisterHotKey(_windowHandle, HOTKEY_ID_CAPTURE);
-            }
+            Dispatcher.Invoke(() => {
+                foreach (var win in _indicatorWindows)
+                {
+                    try { win.Close(); } catch { }
+                }
+                _indicatorWindows.Clear();
+            });
+
+            // 注销所有全局热键
+            UnregisterAllHotkeys();
 
             if (_hwndSource != null)
             {
@@ -189,6 +196,100 @@ namespace AutoClicker
         }
 
         // --------------------------------------------------------------------------
+        // HOTKEY CONTROLLER (REGISTER & UNREGISTER)
+        // --------------------------------------------------------------------------
+
+        private void RegisterAllCustomHotkeys()
+        {
+            UnregisterAllHotkeys();
+
+            // 注册开始采点、连点 Toggle、清空三个常驻快捷键
+            bool resCaptureStart = RegisterSingleHotkey(HOTKEY_ID_CAPTURE_START, _configCaptureStart);
+            bool resClickToggle = RegisterSingleHotkey(HOTKEY_ID_CLICK_TOGGLE, _configClickToggle);
+            bool resClearAll = RegisterSingleHotkey(HOTKEY_ID_CLEAR_ALL, _configClearAll);
+
+            Log($"初始化注册热键: 开始采点({_configCaptureStart.Modifiers}+{_configCaptureStart.Key})={resCaptureStart}, " +
+                $"连点Toggle({_configClickToggle.Modifiers}+{_configClickToggle.Key})={resClickToggle}, " +
+                $"清空点位({_configClearAll.Modifiers}+{_configClearAll.Key})={resClearAll}");
+        }
+
+        private bool RegisterSingleHotkey(int id, HotkeyConfig config)
+        {
+            uint fsModifiers = ParseModifiers(config.Modifiers);
+            uint vk = ParseKey(config.Key);
+            if (vk == 0) return false;
+
+            return RegisterHotKey(_windowHandle, id, fsModifiers, vk);
+        }
+
+        private void UnregisterAllHotkeys()
+        {
+            UnregisterHotKey(_windowHandle, HOTKEY_ID_CAPTURE_START);
+            UnregisterHotKey(_windowHandle, HOTKEY_ID_CAPTURE_POINT);
+            UnregisterHotKey(_windowHandle, HOTKEY_ID_CLICK_TOGGLE);
+            UnregisterHotKey(_windowHandle, HOTKEY_ID_CLEAR_ALL);
+        }
+
+        private uint ParseModifiers(string modStr)
+        {
+            uint modifiers = 0;
+            if (string.IsNullOrEmpty(modStr)) return modifiers;
+            
+            string[] mods = modStr.Split(new char[] { '+', ',' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var mod in mods)
+            {
+                string m = mod.Trim().ToUpper();
+                if (m == "CTRL" || m == "CONTROL") modifiers |= 0x0002;
+                else if (m == "ALT") modifiers |= 0x0001;
+                else if (m == "SHIFT") modifiers |= 0x0004;
+                else if (m == "WIN" || m == "WINDOWS") modifiers |= 0x0008;
+            }
+            return modifiers;
+        }
+
+        private uint ParseKey(string keyStr)
+        {
+            if (string.IsNullOrEmpty(keyStr)) return 0;
+            keyStr = keyStr.Trim().ToUpper();
+
+            if (keyStr.StartsWith("F") && keyStr.Length > 1)
+            {
+                if (int.TryParse(keyStr.Substring(1), out int fNum) && fNum >= 1 && fNum <= 24)
+                {
+                    return (uint)(0x70 + (fNum - 1));
+                }
+            }
+
+            if (keyStr.Length == 1)
+            {
+                char c = keyStr[0];
+                if (c >= 'A' && c <= 'Z') return (uint)c;
+                if (c >= '0' && c <= '9') return (uint)c;
+            }
+
+            switch (keyStr)
+            {
+                case "SPACE": case "空格": return 0x20;
+                case "ENTER": case "回车": case "RETURN": return 0x0D;
+                case "TAB": return 0x09;
+                case "ESCAPE": case "ESC": return 0x1B;
+                case "BACKSPACE": case "退格": case "BACK": return 0x08;
+                case "DELETE": case "DEL": case "删除": return 0x2E;
+                case "INSERT": case "INS": return 0x2D;
+                case "HOME": return 0x24;
+                case "END": return 0x23;
+                case "PAGEUP": case "PGUP": return 0x21;
+                case "PAGEDOWN": case "PGDN": return 0x22;
+                case "UP": case "向上": return 0x26;
+                case "DOWN": case "向下": return 0x28;
+                case "LEFT": case "向左": return 0x25;
+                case "RIGHT": case "向右": return 0x27;
+            }
+
+            return 0;
+        }
+
+        // --------------------------------------------------------------------------
         // WPF WINDOW MESSAGE LOOP HOOK (WM_HOTKEY INTERACTION)
         // --------------------------------------------------------------------------
         
@@ -197,9 +298,48 @@ namespace AutoClicker
             if (msg == WM_HOTKEY)
             {
                 int hotkeyId = wParam.ToInt32();
-                if (hotkeyId == HOTKEY_ID_CAPTURE && _isCapturing)
+                
+                if (hotkeyId == HOTKEY_ID_CAPTURE_START)
                 {
-                    // F7 被按下，触发光标捕获逻辑
+                    if (_isClicking) return IntPtr.Zero;
+
+                    if (_isCapturing)
+                    {
+                        // 退出采点模式
+                        _isCapturing = false;
+                        UnregisterHotKey(_windowHandle, HOTKEY_ID_CAPTURE_POINT);
+                        
+                        this.WindowState = WindowState.Normal;
+                        this.Show();
+                        this.Activate();
+                        
+                        SendToJs(new { type = "capture_state_changed", isCapturing = false });
+                        Log("通过热键退出采点捕获状态。");
+                    }
+                    else
+                    {
+                        // 开启采点模式
+                        _isCapturing = true;
+                        this.WindowState = WindowState.Minimized;
+                        
+                        // 延迟 300ms 注册悬停单点采点热键，等待最小化动画完成
+                        Task.Delay(300).ContinueWith(_ =>
+                        {
+                            Dispatcher.Invoke(() =>
+                            {
+                                bool res = RegisterSingleHotkey(HOTKEY_ID_CAPTURE_POINT, _configCapturePoint);
+                                Log($"采点中：注册悬停捕获 F7 热键结果: {res}");
+                            });
+                        });
+
+                        SendToJs(new { type = "capture_state_changed", isCapturing = true });
+                        Log("进入采点捕获状态，主窗口已最小化。");
+                    }
+                    handled = true;
+                }
+                else if (hotkeyId == HOTKEY_ID_CAPTURE_POINT && _isCapturing)
+                {
+                    // F7 悬停捕获单点
                     POINT screenPos;
                     if (GetCursorPos(out screenPos))
                     {
@@ -218,44 +358,103 @@ namespace AutoClicker
                             POINT clientPos = screenPos;
                             ScreenToClient(rootHwnd, ref clientPos);
 
-                            // 取消注册 F7
-                            UnregisterHotKey(_windowHandle, HOTKEY_ID_CAPTURE);
-                            _isCapturing = false;
+                            long newPointId = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + new Random().Next(0, 1000);
+                            
+                            var pt = new ClickPoint
+                            {
+                                Id = newPointId,
+                                Title = title,
+                                Hwnd = rootHwnd.ToInt64(),
+                                X = screenPos.X,
+                                Y = screenPos.Y,
+                                XRel = clientPos.X,
+                                YRel = clientPos.Y,
+                                Interval = 500, // 默认速度
+                                ClickMode = "background" // 默认后台
+                            };
 
-                            // 恢复软件窗口显示
-                            this.WindowState = WindowState.Normal;
-                            this.Show();
-                            this.Activate();
+                            _clickPoints.Add(pt);
 
-                            // 发送捕获数据给前端网页
+                            // 即时在主线程创建小红色指示器圆圈并显示
+                            Dispatcher.Invoke(() =>
+                            {
+                                var win = new IndicatorWindow(pt.Id, pt.X, pt.Y, _indicatorStyle);
+                                win.Show();
+                                _indicatorWindows.Add(win);
+                            });
+
+                            // 回传新增点位信息给前端 JS
                             SendToJs(new
                             {
-                                type = "captured",
-                                data = new
+                                type = "point_added",
+                                point = new
                                 {
-                                    hwnd = rootHwnd.ToInt64(),
-                                    title = title,
-                                    x = screenPos.X,
-                                    y = screenPos.Y,
-                                    x_rel = clientPos.X,
-                                    y_rel = clientPos.Y
+                                    id = pt.Id,
+                                    title = pt.Title,
+                                    hwnd = pt.Hwnd,
+                                    x = pt.X,
+                                    y = pt.Y,
+                                    x_rel = pt.XRel,
+                                    y_rel = pt.YRel,
+                                    interval = pt.Interval,
+                                    clickMode = pt.ClickMode
                                 }
                             });
+                            
+                            Log($"悬停捕获点位成功: {title} ({screenPos.X}, {screenPos.Y})");
                         }
                     }
                     handled = true;
                 }
-                else if (hotkeyId == HOTKEY_ID_START)
+                else if (hotkeyId == HOTKEY_ID_CLICK_TOGGLE)
                 {
-                    // F8 快捷键触发启动点击
-                    SendToJs(new { type = "hotkey_start" });
+                    // F8 键 Toggle 启动与暂停
+                    if (_isClicking)
+                    {
+                        // 暂停点击
+                        StopClicking();
+                        SendToJs(new { type = "click_state_changed", isClicking = false });
+                    }
+                    else
+                    {
+                        // 如果在采点状态，先强制退出采点状态
+                        if (_isCapturing)
+                        {
+                            _isCapturing = false;
+                            UnregisterHotKey(_windowHandle, HOTKEY_ID_CAPTURE_POINT);
+                            this.WindowState = WindowState.Normal;
+                            this.Show();
+                            this.Activate();
+                            SendToJs(new { type = "capture_state_changed", isCapturing = false });
+                        }
+
+                        // 启动点击
+                        if (_clickPoints.Count > 0)
+                        {
+                            StartClicking(JsonSerializer.Serialize(_clickPoints), _clickMode);
+                            SendToJs(new { type = "click_state_changed", isClicking = true });
+                        }
+                    }
                     handled = true;
                 }
-                else if (hotkeyId == HOTKEY_ID_STOP)
+                else if (hotkeyId == HOTKEY_ID_CLEAR_ALL)
                 {
-                    // F9 快捷键触发停止点击
+                    // Ctrl+Alt+F9 一键清空所有已标记坐标，并销毁所有圆圈指示器
                     StopClicking();
-                    SendToJs(new { type = "hotkey_stop" });
+                    
+                    _clickPoints.Clear();
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        foreach (var win in _indicatorWindows)
+                        {
+                            try { win.Close(); } catch { }
+                        }
+                        _indicatorWindows.Clear();
+                    });
+
+                    SendToJs(new { type = "points_cleared" });
+                    Log("通过全局快捷键清空了所有点位并销毁了全部指示器小红圈。");
                     handled = true;
                 }
             }
@@ -266,7 +465,7 @@ namespace AutoClicker
         // WEBVIEW2 MESSAGING BRIDGE
         // --------------------------------------------------------------------------
         
-        private void OnWebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+        private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             string rawJson = "";
             try
@@ -276,10 +475,11 @@ namespace AutoClicker
                 using (JsonDocument doc = JsonDocument.Parse(rawJson))
                 {
                     JsonElement root = doc.RootElement;
-                    string action = root.GetProperty("action").GetString();
+                    string action = root.GetProperty("action").GetString() ?? "";
 
                     if (action == "start_capture")
                     {
+                        // 前端点击捕获按钮
                         Log("收到开始捕获动作，最小化窗口...");
                         this.WindowState = WindowState.Minimized;
                         _isCapturing = true;
@@ -288,15 +488,26 @@ namespace AutoClicker
                         {
                             Dispatcher.Invoke(() =>
                             {
-                                bool res = RegisterHotKey(_windowHandle, HOTKEY_ID_CAPTURE, MOD_NONE, VK_F7);
-                                Log($"注册 F7 全局热键结果: {res}");
+                                bool res = RegisterSingleHotkey(HOTKEY_ID_CAPTURE_POINT, _configCapturePoint);
+                                Log($"注册捕获 F7 热键结果: {res}");
                             });
                         });
+                        SendToJs(new { type = "capture_state_changed", isCapturing = true });
+                    }
+                    else if (action == "stop_capture")
+                    {
+                        // 前端取消捕获
+                        _isCapturing = false;
+                        UnregisterHotKey(_windowHandle, HOTKEY_ID_CAPTURE_POINT);
+                        this.WindowState = WindowState.Normal;
+                        this.Show();
+                        this.Activate();
+                        SendToJs(new { type = "capture_state_changed", isCapturing = false });
                     }
                     else if (action == "start_clicking")
                     {
-                        string configsJson = root.GetProperty("configs").GetString();
-                        string clickMode = root.GetProperty("clickMode").GetString();
+                        string configsJson = root.GetProperty("configs").GetString() ?? "[]";
+                        string clickMode = root.GetProperty("clickMode").GetString() ?? "sequential";
                         Log($"收到开始点击动作，模式: {clickMode}");
                         
                         Dispatcher.Invoke(() =>
@@ -317,6 +528,46 @@ namespace AutoClicker
                         var windows = GetVisibleWindows();
                         SendToJs(new { type = "windows", data = windows });
                     }
+                    else if (action == "sync_points")
+                    {
+                        // 接收前端点位列表的数据变化同步 (删除、修改速度或模式等)
+                        string pointsJson = root.GetProperty("points").GetString() ?? "[]";
+                        var newPoints = JsonSerializer.Deserialize<List<ClickPoint>>(pointsJson);
+                        SyncPointsAndIndicators(newPoints);
+                    }
+                    else if (action == "update_indicator_style")
+                    {
+                        // 前端切换小红圈样式
+                        int newStyle = root.GetProperty("style").GetInt32();
+                        _indicatorStyle = newStyle;
+                        Dispatcher.Invoke(() =>
+                        {
+                            foreach (var win in _indicatorWindows)
+                            {
+                                win.SetStyle(_indicatorStyle);
+                            }
+                        });
+                        Log($"指示器圆圈样式成功切换为 Option {newStyle}");
+                    }
+                    else if (action == "update_hotkeys")
+                    {
+                        // 前端配置自定义快捷键
+                        string settingsJson = root.GetProperty("hotkeys").GetRawText();
+                        var newSettings = JsonSerializer.Deserialize<HotkeySettings>(settingsJson);
+                        if (newSettings != null)
+                        {
+                            _configCaptureStart = newSettings.CaptureStart;
+                            _configCapturePoint = newSettings.CapturePoint;
+                            _configClickToggle = newSettings.ClickToggle;
+                            _configClearAll = newSettings.ClearAll;
+
+                            // 重新注册系统快捷键
+                            Dispatcher.Invoke(() =>
+                            {
+                                RegisterAllCustomHotkeys();
+                            });
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -335,12 +586,51 @@ namespace AutoClicker
         }
 
         // --------------------------------------------------------------------------
+        // COORDINATE INDICATORS LIFECYCLE MANAGEMENT
+        // --------------------------------------------------------------------------
+
+        private void SyncPointsAndIndicators(List<ClickPoint>? newPoints)
+        {
+            if (newPoints == null) return;
+            _clickPoints = newPoints;
+
+            Dispatcher.Invoke(() =>
+            {
+                // 1. 关闭已被前端移除的点位对应的指示器小窗口
+                var activeIds = new HashSet<long>(_clickPoints.Select(p => p.Id));
+                var toRemove = _indicatorWindows.Where(w => !activeIds.Contains(w.PointId)).ToList();
+                foreach (var w in toRemove)
+                {
+                    try { w.Close(); } catch { }
+                    _indicatorWindows.Remove(w);
+                }
+
+                // 2. 补齐或更新现有指示器窗口位置与样式
+                foreach (var pt in _clickPoints)
+                {
+                    var existing = _indicatorWindows.FirstOrDefault(w => w.PointId == pt.Id);
+                    if (existing != null)
+                    {
+                        existing.UpdatePosition(pt.X, pt.Y);
+                        existing.SetStyle(_indicatorStyle);
+                    }
+                    else
+                    {
+                        var w = new IndicatorWindow(pt.Id, pt.X, pt.Y, _indicatorStyle);
+                        w.Show();
+                        _indicatorWindows.Add(w);
+                    }
+                }
+            });
+        }
+
+        // --------------------------------------------------------------------------
         // CLICK ENGINE & MULTITHREADING
         // --------------------------------------------------------------------------
         
         private void StartClicking(string configsJson, string clickMode)
         {
-            Log($"StartClicking 被调用: mode={clickMode}, configs={configsJson}");
+            Log($"StartClicking 被调用: mode={clickMode}");
             if (_isClicking)
             {
                 Log("点击任务已在运行中，忽略此次调用。");
@@ -349,8 +639,7 @@ namespace AutoClicker
 
             try
             {
-                _clickPoints = JsonSerializer.Deserialize<List<ClickPoint>>(configsJson);
-                Log($"反序列化配置成功，点个数: {_clickPoints?.Count ?? 0}");
+                _clickPoints = JsonSerializer.Deserialize<List<ClickPoint>>(configsJson) ?? new List<ClickPoint>();
             }
             catch (Exception ex)
             {
@@ -380,7 +669,6 @@ namespace AutoClicker
                 Log("启动独立并发点击工作线程...");
                 foreach (var pt in _clickPoints)
                 {
-                    Log($"启动单点线程: Id={pt.Id}, Title={pt.Title}, Interval={pt.Interval}ms");
                     Thread t = new Thread(IndependentClickWorker) { IsBackground = true };
                     t.Start(pt);
                     _clickThreads.Add(t);
@@ -390,7 +678,7 @@ namespace AutoClicker
 
         private void StopClicking()
         {
-            Log("StopClicking 被调用，停止点击线程...");
+            Log("StopClicking 被调用，停止点击工作线程...");
             _isClicking = false;
             _clickThreads.Clear();
         }
@@ -408,8 +696,9 @@ namespace AutoClicker
             }
         }
 
-        private void IndependentClickWorker(object obj)
+        private void IndependentClickWorker(object? obj)
         {
+            if (obj == null) return;
             ClickPoint pt = (ClickPoint)obj;
             while (_isClicking)
             {
@@ -420,28 +709,23 @@ namespace AutoClicker
 
         private void ExecuteSingleClick(ClickPoint pt)
         {
-            Log($"ExecuteSingleClick 启动: Id={pt.Id}, Title={pt.Title}, ClickMode={pt.ClickMode}, Hwnd={pt.Hwnd}, X={pt.X}, Y={pt.Y}, XRel={pt.XRel}, YRel={pt.YRel}");
             if (pt.ClickMode == "background")
             {
                 IntPtr hwnd = new IntPtr(pt.Hwnd);
                 if (IsWindow(hwnd))
                 {
                     IntPtr lParam = (IntPtr)((pt.YRel << 16) | (pt.XRel & 0xFFFF));
-                    Log($"投递后台点击 WM_LBUTTONDOWN 到 HWND: {hwnd}, lParam: {lParam.ToInt64()}");
                     PostMessage(hwnd, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, lParam);
                     Thread.Sleep(10);
                     PostMessage(hwnd, WM_LBUTTONUP, IntPtr.Zero, lParam);
-                    Log("后台点击消息投递完成。");
                 }
                 else
                 {
-                    Log($"警告: HWND {hwnd} 已经失效，降级执行前台物理点击。");
                     ActivePhysicalClick(pt.X, pt.Y);
                 }
             }
             else
             {
-                Log("执行前台物理点击。");
                 ActivePhysicalClick(pt.X, pt.Y);
             }
         }
@@ -453,7 +737,6 @@ namespace AutoClicker
                 POINT origPos;
                 GetCursorPos(out origPos);
                 
-                Log($"前台物理点击: 移至 ({x}, {y})，点击后恢复至 ({origPos.X}, {origPos.Y})");
                 SetCursorPos(x, y);
                 mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
                 Thread.Sleep(10);
@@ -517,7 +800,7 @@ namespace AutoClicker
         public long Id { get; set; }
         
         [JsonPropertyName("title")]
-        public string Title { get; set; }
+        public string Title { get; set; } = "";
         
         [JsonPropertyName("hwnd")]
         public long Hwnd { get; set; }
@@ -538,7 +821,7 @@ namespace AutoClicker
         public int Interval { get; set; }
         
         [JsonPropertyName("clickMode")]
-        public string ClickMode { get; set; } // "background" or "active"
+        public string ClickMode { get; set; } = "background"; // "background" or "active"
     }
 
     public class WindowInfo
@@ -547,6 +830,31 @@ namespace AutoClicker
         public long Hwnd { get; set; }
         
         [JsonPropertyName("title")]
-        public string Title { get; set; }
+        public string Title { get; set; } = "";
+    }
+
+    // 快捷键配置结构
+    public class HotkeyConfig
+    {
+        [JsonPropertyName("key")]
+        public string Key { get; set; } = "";
+
+        [JsonPropertyName("modifiers")]
+        public string Modifiers { get; set; } = "None"; // e.g. "Ctrl+Alt", "Shift"
+    }
+
+    public class HotkeySettings
+    {
+        [JsonPropertyName("captureStart")]
+        public HotkeyConfig CaptureStart { get; set; } = new HotkeyConfig();
+
+        [JsonPropertyName("capturePoint")]
+        public HotkeyConfig CapturePoint { get; set; } = new HotkeyConfig();
+
+        [JsonPropertyName("clickToggle")]
+        public HotkeyConfig ClickToggle { get; set; } = new HotkeyConfig();
+
+        [JsonPropertyName("clearAll")]
+        public HotkeyConfig ClearAll { get; set; } = new HotkeyConfig();
     }
 }
