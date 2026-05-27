@@ -1644,6 +1644,16 @@ function loadConfigFromStorage() {
 // ACTIONS & LOGIC
 // ==========================================================================
 
+// 0. 开始捕获
+function capturePoint() {
+    if (state.isCapturing || state.isClicking) return;
+    
+    state.isCapturing = true;
+    updateUIStates();
+    
+    sendToHost("start_capture");
+}
+
 // 1. 禁用/启用单个连点
 window.togglePointEnabled = function(id, event) {
     if (event) {
