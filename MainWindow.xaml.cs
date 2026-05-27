@@ -82,6 +82,7 @@ namespace AutoClicker
         private const int HOTKEY_ID_CAPTURE_POINT = 1002;
         private const int HOTKEY_ID_CLICK_TOGGLE = 1003;
         private const int HOTKEY_ID_CLEAR_ALL = 1004;
+        private const int HOTKEY_ID_TOGGLE_ENABLE = 1005; // 快捷禁用热键
 
         // --------------------------------------------------------------------------
         // CLASS VARIABLES
@@ -102,6 +103,7 @@ namespace AutoClicker
         private HotkeyConfig _configCapturePoint = new HotkeyConfig { Key = "F7", Modifiers = "None" };
         private HotkeyConfig _configClickToggle = new HotkeyConfig { Key = "F8", Modifiers = "None" };
         private HotkeyConfig _configClearAll = new HotkeyConfig { Key = "F9", Modifiers = "Ctrl+Alt" };
+        private HotkeyConfig _configToggleEnable = new HotkeyConfig { Key = "D", Modifiers = "Ctrl+Alt" }; // 默认 Ctrl+Alt+D
 
         public MainWindow()
         {
@@ -203,14 +205,16 @@ namespace AutoClicker
         {
             UnregisterAllHotkeys();
 
-            // 注册开始采点、连点 Toggle、清空三个常驻快捷键
+            // 注册常驻全局快捷键
             bool resCaptureStart = RegisterSingleHotkey(HOTKEY_ID_CAPTURE_START, _configCaptureStart);
             bool resClickToggle = RegisterSingleHotkey(HOTKEY_ID_CLICK_TOGGLE, _configClickToggle);
             bool resClearAll = RegisterSingleHotkey(HOTKEY_ID_CLEAR_ALL, _configClearAll);
+            bool resToggleEnable = RegisterSingleHotkey(HOTKEY_ID_TOGGLE_ENABLE, _configToggleEnable);
 
             Log($"初始化注册热键: 开始采点({_configCaptureStart.Modifiers}+{_configCaptureStart.Key})={resCaptureStart}, " +
                 $"连点Toggle({_configClickToggle.Modifiers}+{_configClickToggle.Key})={resClickToggle}, " +
-                $"清空点位({_configClearAll.Modifiers}+{_configClearAll.Key})={resClearAll}");
+                $"清空点位({_configClearAll.Modifiers}+{_configClearAll.Key})={resClearAll}, " +
+                $"禁用点位({_configToggleEnable.Modifiers}+{_configToggleEnable.Key})={resToggleEnable}");
         }
 
         private bool RegisterSingleHotkey(int id, HotkeyConfig config)
@@ -228,6 +232,7 @@ namespace AutoClicker
             UnregisterHotKey(_windowHandle, HOTKEY_ID_CAPTURE_POINT);
             UnregisterHotKey(_windowHandle, HOTKEY_ID_CLICK_TOGGLE);
             UnregisterHotKey(_windowHandle, HOTKEY_ID_CLEAR_ALL);
+            UnregisterHotKey(_windowHandle, HOTKEY_ID_TOGGLE_ENABLE);
         }
 
         private uint ParseModifiers(string modStr)
@@ -370,16 +375,18 @@ namespace AutoClicker
                                 XRel = clientPos.X,
                                 YRel = clientPos.Y,
                                 Interval = 500, // 默认速度
-                                ClickMode = "background" // 默认后台
+                                ClickMode = "background", // 默认后台
+                                Enabled = true // 默认启用
                             };
 
                             _clickPoints.Add(pt);
 
-                            // 即时在主线程创建小红色指示器圆圈并显示
+                            // 即时在主线程创建小红色指示器圆圈并显示数字序号
                             Dispatcher.Invoke(() =>
                             {
-                                var win = new IndicatorWindow(pt.Id, pt.X, pt.Y, _indicatorStyle);
+                                var win = new IndicatorWindow(pt.Id, pt.X, pt.Y, _indicatorStyle, _clickPoints.Count);
                                 win.Show();
+                                win.Opacity = 1.0;
                                 _indicatorWindows.Add(win);
                             });
 
@@ -397,7 +404,8 @@ namespace AutoClicker
                                     x_rel = pt.XRel,
                                     y_rel = pt.YRel,
                                     interval = pt.Interval,
-                                    clickMode = pt.ClickMode
+                                    clickMode = pt.ClickMode,
+                                    enabled = pt.Enabled
                                 }
                             });
                             
@@ -455,6 +463,56 @@ namespace AutoClicker
 
                     SendToJs(new { type = "points_cleared" });
                     Log("通过全局快捷键清空了所有点位并销毁了全部指示器小红圈。");
+                    handled = true;
+                }
+                else if (hotkeyId == HOTKEY_ID_TOGGLE_ENABLE)
+                {
+                    // Ctrl+Alt+D 全局快捷键禁用/启用鼠标当前悬停位置的红圈
+                    POINT screenPos;
+                    if (GetCursorPos(out screenPos))
+                    {
+                        double minDistance = double.MaxValue;
+                        ClickPoint? closestPoint = null;
+
+                        // 搜索离鼠标绝对坐标 30 像素内最近的标记点
+                        foreach (var pt in _clickPoints)
+                        {
+                            double dx = screenPos.X - pt.X;
+                            double dy = screenPos.Y - pt.Y;
+                            double dist = Math.Sqrt(dx * dx + dy * dy);
+                            if (dist < 30 && dist < minDistance)
+                            {
+                                minDistance = dist;
+                                closestPoint = pt;
+                            }
+                        }
+
+                        if (closestPoint != null)
+                        {
+                            closestPoint.Enabled = !closestPoint.Enabled;
+
+                            // 实时同步圆圈的透明度 (禁用变 0.25, 启用变 1.0)
+                            Dispatcher.Invoke(() =>
+                            {
+                                var win = _indicatorWindows.FirstOrDefault(w => w.PointId == closestPoint.Id);
+                                if (win != null)
+                                {
+                                    win.Opacity = closestPoint.Enabled ? 1.0 : 0.25;
+                                    win.TriggerHighlight(); // 播放一个醒目的动画反馈
+                                }
+                            });
+
+                            // 通知前端 JS 同步卡片的禁用置灰视效
+                            SendToJs(new
+                            {
+                                type = "point_enabled_toggled",
+                                id = closestPoint.Id,
+                                enabled = closestPoint.Enabled
+                            });
+
+                            Log($"通过全局热键 Toggle 了悬停点启用状态: ID={closestPoint.Id}, Title={closestPoint.Title}, Enabled={closestPoint.Enabled}");
+                        }
+                    }
                     handled = true;
                 }
             }
@@ -530,7 +588,7 @@ namespace AutoClicker
                     }
                     else if (action == "sync_points")
                     {
-                        // 接收前端点位列表的数据变化同步 (删除、修改速度或模式等)
+                        // 接收前端点位列表的数据变化同步 (删除、修改速度、禁用/启用状态同步)
                         string pointsJson = root.GetProperty("points").GetString() ?? "[]";
                         var newPoints = JsonSerializer.Deserialize<List<ClickPoint>>(pointsJson);
                         SyncPointsAndIndicators(newPoints);
@@ -560,6 +618,11 @@ namespace AutoClicker
                             _configCapturePoint = newSettings.CapturePoint;
                             _configClickToggle = newSettings.ClickToggle;
                             _configClearAll = newSettings.ClearAll;
+                            
+                            if (newSettings.ToggleEnable != null)
+                            {
+                                _configToggleEnable = newSettings.ToggleEnable;
+                            }
 
                             // 重新注册系统快捷键
                             Dispatcher.Invoke(() =>
@@ -567,6 +630,19 @@ namespace AutoClicker
                                 RegisterAllCustomHotkeys();
                             });
                         }
+                    }
+                    else if (action == "highlight_point")
+                    {
+                        // 前端 Hover 卡片，通知对应圆圈高亮放大
+                        long ptId = root.GetProperty("id").GetInt64();
+                        Dispatcher.Invoke(() =>
+                        {
+                            var win = _indicatorWindows.FirstOrDefault(w => w.PointId == ptId);
+                            if (win != null)
+                            {
+                                win.TriggerHighlight();
+                            }
+                        });
                     }
                 }
             }
@@ -596,7 +672,7 @@ namespace AutoClicker
 
             Dispatcher.Invoke(() =>
             {
-                // 1. 关闭已被前端移除的点位对应的指示器小窗口
+                // 1. 关闭已被前端彻底移除的点位对应的指示器小窗口
                 var activeIds = new HashSet<long>(_clickPoints.Select(p => p.Id));
                 var toRemove = _indicatorWindows.Where(w => !activeIds.Contains(w.PointId)).ToList();
                 foreach (var w in toRemove)
@@ -605,19 +681,23 @@ namespace AutoClicker
                     _indicatorWindows.Remove(w);
                 }
 
-                // 2. 补齐或更新现有指示器窗口位置与样式
-                foreach (var pt in _clickPoints)
+                // 2. 补齐或更新现有指示器窗口位置、样式、数字标号、透明度
+                for (int i = 0; i < _clickPoints.Count; i++)
                 {
+                    var pt = _clickPoints[i];
                     var existing = _indicatorWindows.FirstOrDefault(w => w.PointId == pt.Id);
                     if (existing != null)
                     {
                         existing.UpdatePosition(pt.X, pt.Y);
                         existing.SetStyle(_indicatorStyle);
+                        existing.SetNumber(i + 1); // 重新计算序号绘制 (1, 2, 3...)
+                        existing.Opacity = pt.Enabled ? 1.0 : 0.25; // 禁用变半透明，启用恢复正常
                     }
                     else
                     {
-                        var w = new IndicatorWindow(pt.Id, pt.X, pt.Y, _indicatorStyle);
+                        var w = new IndicatorWindow(pt.Id, pt.X, pt.Y, _indicatorStyle, i + 1);
                         w.Show();
+                        w.Opacity = pt.Enabled ? 1.0 : 0.25;
                         _indicatorWindows.Add(w);
                     }
                 }
@@ -690,6 +770,10 @@ namespace AutoClicker
                 foreach (var pt in _clickPoints)
                 {
                     if (!_isClicking) break;
+                    
+                    // 独立禁用控制：跳过已禁用的点
+                    if (!pt.Enabled) continue;
+
                     ExecuteSingleClick(pt);
                     Thread.Sleep(Math.Max(pt.Interval, 10));
                 }
@@ -702,8 +786,16 @@ namespace AutoClicker
             ClickPoint pt = (ClickPoint)obj;
             while (_isClicking)
             {
-                ExecuteSingleClick(pt);
-                Thread.Sleep(Math.Max(pt.Interval, 10));
+                // 独立并发多线程下：从全局点池中检索最新的状态，保证能够实时动态开启/关闭
+                var actualPt = _clickPoints.FirstOrDefault(p => p.Id == pt.Id);
+                if (actualPt == null || !actualPt.Enabled)
+                {
+                    Thread.Sleep(50); // 挂起并等待重新启用
+                    continue;
+                }
+
+                ExecuteSingleClick(actualPt);
+                Thread.Sleep(Math.Max(actualPt.Interval, 10));
             }
         }
 
@@ -822,6 +914,9 @@ namespace AutoClicker
         
         [JsonPropertyName("clickMode")]
         public string ClickMode { get; set; } = "background"; // "background" or "active"
+
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; } = true; // 新增属性：独立控制启用/禁用
     }
 
     public class WindowInfo
@@ -856,5 +951,8 @@ namespace AutoClicker
 
         [JsonPropertyName("clearAll")]
         public HotkeyConfig ClearAll { get; set; } = new HotkeyConfig();
+
+        [JsonPropertyName("toggleEnable")]
+        public HotkeyConfig ToggleEnable { get; set; } = new HotkeyConfig(); // 快捷禁用快捷键
     }
 }

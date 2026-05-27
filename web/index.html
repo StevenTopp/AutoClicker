@@ -936,6 +936,58 @@ select:focus {
     from { transform: scale(0.95); opacity: 0; }
     to { transform: scale(1); opacity: 1; }
 }
+
+/* ==========================================================================
+   ADVANCED POINT DISABLING & HOVER HIGHLIGHT STYLES
+   ========================================================================== */
+
+.point-card.disabled {
+    opacity: 0.45;
+    background: rgba(10, 10, 18, 0.15) !important;
+    border-color: rgba(255, 255, 255, 0.03) !important;
+    filter: grayscale(0.85);
+    transform: none !important;
+}
+
+.point-card.disabled input,
+.point-card.disabled select,
+.point-card.disabled button:not(.btn-eye-toggle) {
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+.btn-eye-toggle {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.btn-eye-toggle:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-secondary) !important;
+}
+
+.point-card.disabled .point-number {
+    background: var(--text-muted) !important;
+}
+
+.point-card-header {
+    position: relative;
+}
+
+.header-action-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
 </style>
 </head>
 <body>
@@ -1037,7 +1089,7 @@ select:focus {
 
     <script>
 /**
- * 自动点击器前端核心状态与交互逻辑 (C# WebView2 升级版)
+ * 自动点击器前端核心状态与交互逻辑 (C# WebView2 禁用与高亮增强版)
  */
 
 // 状态管理
@@ -1049,15 +1101,16 @@ const state = {
     indicatorStyle: 2 // 红圈指示器样式: 1, 2, 3, 4 (默认2)
 };
 
-// 快捷键默认值与当前录制值
+// 快捷键配置存储
 const hotkeySettings = {
     captureStart: { key: 'F7', modifiers: 'Ctrl+Alt' },
     capturePoint: { key: 'F7', modifiers: 'None' },
     clickToggle: { key: 'F8', modifiers: 'None' },
-    clearAll: { key: 'F9', modifiers: 'Ctrl+Alt' }
+    clearAll: { key: 'F9', modifiers: 'Ctrl+Alt' },
+    toggleEnable: { key: 'D', modifiers: 'Ctrl+Alt' } // 默认 Ctrl+Alt+D
 };
 
-// 临时按键缓存，保存录制中但尚未保存的键值对
+// 临时按键缓存
 let tempHotkeys = {};
 
 // UI 元素缓存
@@ -1075,7 +1128,7 @@ const el = {
     statusBarText: document.getElementById('status-bar-text'),
     shortcutsDisplayTag: document.getElementById('shortcuts-display-tag'),
     
-    // 设置相关元素
+    // 设置面板相关
     btnSettings: document.getElementById('btn-settings'),
     settingsPanel: document.getElementById('settings-panel'),
     btnCloseSettings: document.getElementById('btn-close-settings'),
@@ -1087,7 +1140,8 @@ const el = {
     hkCaptureStart: document.getElementById('hk-capture-start'),
     hkCapturePoint: document.getElementById('hk-capture-point'),
     hkClickToggle: document.getElementById('hk-click-toggle'),
-    hkClearAll: document.getElementById('hk-clear-all')
+    hkClearAll: document.getElementById('hk-clear-all'),
+    hkToggleEnable: document.getElementById('hk-toggle-enable')
 };
 
 // ==========================================================================
@@ -1111,7 +1165,6 @@ document.addEventListener('DOMContentLoaded', () => {
         state.clickMode = e.target.value;
         updateStatusBar(`多点点击执行模式已更改为: ${state.clickMode === 'sequential' ? '顺序循环' : '独立并发'}`);
         if (state.isClicking) {
-            // 如果在连点，重新同步配置
             startClicking();
         }
     });
@@ -1122,14 +1175,13 @@ document.addEventListener('DOMContentLoaded', () => {
     el.btnSaveSettings.addEventListener('click', saveSettings);
     el.btnResetSettings.addEventListener('click', resetSettingsToDefault);
     
-    // 指示器红圈样式选择卡片点击事件
+    // 样式选择卡片
     el.styleCards.forEach(card => {
         card.addEventListener('click', () => {
             el.styleCards.forEach(c => c.classList.remove('active'));
             card.classList.add('active');
             const styleNum = parseInt(card.dataset.style, 10);
             state.indicatorStyle = styleNum;
-            // 实时通知 C# 修改所有圆圈的样式预览
             sendToHost("update_indicator_style", { style: styleNum });
         });
     });
@@ -1139,6 +1191,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupHotkeyInputRecording(el.hkCapturePoint, 'capturePoint');
     setupHotkeyInputRecording(el.hkClickToggle, 'clickToggle');
     setupHotkeyInputRecording(el.hkClearAll, 'clearAll');
+    setupHotkeyInputRecording(el.hkToggleEnable, 'toggleEnable');
 
     // 读取本地配置
     loadConfigFromStorage();
@@ -1147,7 +1200,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderPoints();
     updateUIStates();
 
-    // 注册 C# WebView2 主机消息接收
+    // 注册 C# WebView2 消息网桥
     function registerWebView2() {
         if (window.chrome && window.chrome.webview) {
             window.chrome.webview.addEventListener('message', event => {
@@ -1158,7 +1211,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.error("解析主机消息失败:", e);
                 }
             });
-            // 注册成功后将按键立刻同步给 C# 后端
+            // 同步按键和样式
             sendToHost("update_hotkeys", { hotkeys: hotkeySettings });
             sendToHost("update_indicator_style", { style: state.indicatorStyle });
         } else {
@@ -1188,12 +1241,34 @@ function renderPoints() {
     
     state.points.forEach((pt, index) => {
         const card = document.createElement('div');
-        card.className = 'point-card';
+        // 如果被禁用，自动追加 disabled 灰度类
+        card.className = 'point-card' + (pt.enabled ? '' : ' disabled');
         card.dataset.id = pt.id;
+
+        // 绑定卡片 Hover 高亮事件发送给 C#
+        card.addEventListener('mouseenter', () => highlightPoint(pt.id));
+        card.addEventListener('mouseleave', () => unhighlightPoint(pt.id));
 
         const coordText = pt.clickMode === 'background' 
             ? `相对 (${pt.x_rel}, ${pt.y_rel})` 
             : `绝对 (${pt.x}, ${pt.y})`;
+
+        // 眼睛开关按钮 HTML 串 (Enabled 状态双向渲染)
+        const eyeButtonHtml = `
+            <button class="btn-eye-toggle" title="${pt.enabled ? '禁用此连点' : '启用此连点'}" onclick="togglePointEnabled(${pt.id}, event)">
+                ${pt.enabled ? `
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                ` : `
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-muted);">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                        <line x1="1" y1="1" x2="23" y2="23"></line>
+                    </svg>
+                `}
+            </button>
+        `;
 
         card.innerHTML = `
             <div class="point-card-header">
@@ -1201,13 +1276,17 @@ function renderPoints() {
                     <span class="point-number">${index + 1}</span>
                     <span class="window-name" title="${pt.title}">${pt.title}</span>
                     <span class="pos-coordinates">${coordText}</span>
+                    ${pt.enabled ? '' : '<span class="card-badge" style="font-size: 8px; color: var(--text-muted); border-color: rgba(255,255,255,0.05); padding: 1px 4px;">已禁用</span>'}
                 </div>
-                <button class="btn-delete" title="删除此点" onclick="deletePoint(${pt.id})">
-                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"></polyline>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                    </svg>
-                </button>
+                <div class="header-action-group">
+                    ${eyeButtonHtml}
+                    <button class="btn-delete" title="删除此点" onclick="deletePoint(${pt.id}, event)">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="point-card-body">
                 <div class="input-item">
@@ -1264,10 +1343,12 @@ function updateUIStates() {
         el.statusBadge.className = 'card-badge';
         el.statusBadge.textContent = '采点中';
         
-        const capKeyText = (hotkeySettings.capturePoint.modifiers !== 'None' ? hotkeySettings.capturePoint.modifiers + '+' : '') + hotkeySettings.capturePoint.key;
+        const capKeyText = formatHotkeyString(hotkeySettings.capturePoint);
         updateStatusBar(`采点激活中：将鼠标【悬停】在点击处，并按下 [${capKeyText}] 记录点位。`, 'capturing');
     } else {
-        el.btnStart.disabled = state.points.length === 0;
+        // 当列表中所有点都处于禁用状态时，禁止点开始按钮
+        const hasEnabledPoints = state.points.some(p => p.enabled);
+        el.btnStart.disabled = state.points.length === 0 || !hasEnabledPoints;
         el.btnStop.disabled = true;
         
         el.btnCapture.innerHTML = `
@@ -1288,8 +1369,8 @@ function updateUIStates() {
         el.statusBadge.className = 'card-badge';
         el.statusBadge.textContent = '已就绪';
         
-        const capStartKey = (hotkeySettings.captureStart.modifiers !== 'None' ? hotkeySettings.captureStart.modifiers + '+' : '') + hotkeySettings.captureStart.key;
-        updateStatusBar(`准备就绪。按快捷键 [${capStartKey}] 可以快捷进入采点模式。`);
+        const capStartKey = formatHotkeyString(hotkeySettings.captureStart);
+        updateStatusBar(`准备就绪。按快捷键 [${capStartKey}] 最小化主窗口快速捕获坐标！`);
     }
 }
 
@@ -1314,10 +1395,8 @@ function handleHostMessage(msg) {
 
     switch (msg.type) {
         case "point_added":
-            // 收到 C# 键盘 F7 录入的回传点
             if (msg.point) {
                 const pt = msg.point;
-                // 防止数据结构差异，标准化
                 const newPoint = {
                     id: pt.id,
                     title: pt.title || '未知窗口',
@@ -1327,35 +1406,52 @@ function handleHostMessage(msg) {
                     x_rel: pt.x_rel,
                     y_rel: pt.y_rel,
                     interval: pt.interval || 500,
-                    clickMode: pt.clickMode || 'background'
+                    clickMode: pt.clickMode || 'background',
+                    enabled: pt.enabled !== undefined ? pt.enabled : true
                 };
                 state.points.push(newPoint);
                 updateStatusBar(`已新增坐标点: [${state.points.length}] 在 (${newPoint.x}, ${newPoint.y})`);
                 renderPoints();
                 updateUIStates();
-                // 往 C# 同步点位列表，确保一致性
                 syncPointsToHost();
             }
             break;
             
         case "capture_state_changed":
-            // C# 端状态变更
             state.isCapturing = msg.isCapturing;
             updateUIStates();
             break;
 
         case "click_state_changed":
-            // C# 启动/停止点击状态变更
             state.isClicking = msg.isClicking;
             updateUIStates();
             break;
 
         case "points_cleared":
-            // C# 快捷键触发了清空
             state.points = [];
             renderPoints();
             updateUIStates();
             updateStatusBar("全局快捷键清空了所有坐标！");
+            break;
+
+        case "point_enabled_toggled":
+            // 处理从 C# 快捷按键 Ctrl+Alt+D 触发的禁用/启用事件回传
+            if (msg.id !== undefined) {
+                const pt = state.points.find(p => p.id === msg.id);
+                if (pt) {
+                    pt.enabled = msg.enabled;
+                    renderPoints();
+                    updateUIStates();
+                    updateStatusBar(`快捷键 Toggle 点位 [${msg.id}] 状态为: ${pt.enabled ? '启用' : '禁用'}`);
+                    
+                    // 卡片视觉缩放震动反馈
+                    const card = document.querySelector(`.point-card[data-id="${msg.id}"]`);
+                    if (card) {
+                        card.style.transform = "scale(1.03)";
+                        setTimeout(() => card.style.transform = "", 150);
+                    }
+                }
+            }
             break;
     }
 }
@@ -1371,13 +1467,12 @@ function syncPointsToHost() {
 function openSettings() {
     if (state.isClicking || state.isCapturing) return;
 
-    // 将当前设置回显到输入框
     el.hkCaptureStart.value = formatHotkeyString(hotkeySettings.captureStart);
     el.hkCapturePoint.value = formatHotkeyString(hotkeySettings.capturePoint);
     el.hkClickToggle.value = formatHotkeyString(hotkeySettings.clickToggle);
     el.hkClearAll.value = formatHotkeyString(hotkeySettings.clearAll);
+    el.hkToggleEnable.value = formatHotkeyString(hotkeySettings.toggleEnable);
 
-    // 选中对应样式的卡片
     el.styleCards.forEach(card => {
         if (parseInt(card.dataset.style, 10) === state.indicatorStyle) {
             card.classList.add('active');
@@ -1386,7 +1481,7 @@ function openSettings() {
         }
     });
 
-    tempHotkeys = JSON.parse(JSON.stringify(hotkeySettings)); // 深拷贝用于缓存修改
+    tempHotkeys = JSON.parse(JSON.stringify(hotkeySettings));
     el.settingsPanel.style.display = 'flex';
 }
 
@@ -1399,14 +1494,12 @@ function formatHotkeyString(cfg) {
     return (cfg.modifiers !== 'None' ? cfg.modifiers + '+' : '') + cfg.key;
 }
 
-// 全局按键自定义录制核心逻辑
 function setupHotkeyInputRecording(inputElement, hotkeyKeyName) {
     inputElement.addEventListener('keydown', (e) => {
         e.preventDefault();
         e.stopPropagation();
 
         const key = e.key;
-        // 忽略单独按下的辅助键
         if (['Control', 'Alt', 'Shift', 'Meta'].includes(key)) {
             return;
         }
@@ -1420,12 +1513,10 @@ function setupHotkeyInputRecording(inputElement, hotkeyKeyName) {
         const modifiersStr = mods.length > 0 ? mods.join('+') : 'None';
         let keyStr = key.toUpperCase();
 
-        // 将部分功能按键标准化
         if (keyStr === ' ') keyStr = 'SPACE';
 
         inputElement.value = (modifiersStr !== 'None' ? modifiersStr + '+' : '') + keyStr;
 
-        // 写入临时变量
         tempHotkeys[hotkeyKeyName] = {
             key: keyStr,
             modifiers: modifiersStr
@@ -1434,43 +1525,39 @@ function setupHotkeyInputRecording(inputElement, hotkeyKeyName) {
 }
 
 function saveSettings() {
-    // 1. 将临时快捷键覆盖到实际设置中
     Object.assign(hotkeySettings, tempHotkeys);
     
-    // 2. 持久化到 localStorage
     localStorage.setItem('hkSettings', JSON.stringify(hotkeySettings));
     localStorage.setItem('indicatorStyle', state.indicatorStyle);
 
-    // 3. 将修改实时同步给 C# 后端，重新绑定系统全局快捷键
     sendToHost("update_hotkeys", { hotkeys: hotkeySettings });
     sendToHost("update_indicator_style", { style: state.indicatorStyle });
 
-    // 4. 更新快捷键显示
     const capStartKey = formatHotkeyString(hotkeySettings.captureStart);
     el.shortcutsDisplayTag.textContent = `${hotkeySettings.clickToggle.key} 启动/暂停 | ${capStartKey} 采点`;
 
     closeSettings();
     updateUIStates();
-    updateStatusBar("设置已成功保存并即时生效！");
+    updateStatusBar("按键设置及指示器样式已保存应用！");
 }
 
 function resetSettingsToDefault() {
-    // 恢复默认快捷键与样式 (Option 2 为主打样式)
     const defaultHotkeys = {
         captureStart: { key: 'F7', modifiers: 'Ctrl+Alt' },
         capturePoint: { key: 'F7', modifiers: 'None' },
         clickToggle: { key: 'F8', modifiers: 'None' },
-        clearAll: { key: 'F9', modifiers: 'Ctrl+Alt' }
+        clearAll: { key: 'F9', modifiers: 'Ctrl+Alt' },
+        toggleEnable: { key: 'D', modifiers: 'Ctrl+Alt' }
     };
     
     tempHotkeys = JSON.parse(JSON.stringify(defaultHotkeys));
-    state.indicatorStyle = 2; // 默认 Option 2
+    state.indicatorStyle = 2;
 
-    // 重新回显
     el.hkCaptureStart.value = formatHotkeyString(defaultHotkeys.captureStart);
     el.hkCapturePoint.value = formatHotkeyString(defaultHotkeys.capturePoint);
     el.hkClickToggle.value = formatHotkeyString(defaultHotkeys.clickToggle);
     el.hkClearAll.value = formatHotkeyString(defaultHotkeys.clearAll);
+    el.hkToggleEnable.value = formatHotkeyString(defaultHotkeys.toggleEnable);
 
     el.styleCards.forEach(card => {
         if (parseInt(card.dataset.style, 10) === 2) {
@@ -1496,7 +1583,7 @@ function loadConfigFromStorage() {
         const capStartKey = formatHotkeyString(hotkeySettings.captureStart);
         el.shortcutsDisplayTag.textContent = `${hotkeySettings.clickToggle.key} 启动/暂停 | ${capStartKey} 采点`;
     } catch (e) {
-        console.error("加载配置异常:", e);
+        console.error("加载本地配置异常:", e);
     }
 }
 
@@ -1504,18 +1591,31 @@ function loadConfigFromStorage() {
 // ACTIONS & LOGIC
 // ==========================================================================
 
-// 1. 捕获坐标
-function capturePoint() {
-    if (state.isCapturing || state.isClicking) return;
-    
-    state.isCapturing = true;
-    updateUIStates();
-    
-    // 向 C# 发起捕获请求
-    sendToHost("start_capture");
-}
+// 1. 禁用/启用单个连点
+window.togglePointEnabled = function(id, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const pt = state.points.find(p => p.id === id);
+    if (pt) {
+        pt.enabled = !pt.enabled;
+        renderPoints();
+        updateUIStates();
+        syncPointsToHost();
+    }
+};
 
-// 2. 更改单个坐标的速度/间隔
+// 2. 悬停高亮红圈通知 C# 后端
+window.highlightPoint = function(id) {
+    sendToHost("highlight_point", { id: id });
+};
+
+window.unhighlightPoint = function(id) {
+    // 鼠标移出卡片，后端无需重置，动画已完成 AutoReverse
+};
+
+// 3. 更改单个坐标的速度/间隔
 window.updatePointInterval = function(id, val) {
     const parsedVal = parseInt(val, 10);
     const interval = isNaN(parsedVal) || parsedVal < 10 ? 10 : parsedVal;
@@ -1527,7 +1627,7 @@ window.updatePointInterval = function(id, val) {
     }
 };
 
-// 3. 更改单个坐标的点击模式 (后台/前台)
+// 4. 更改单个坐标的点击模式 (后台/前台)
 window.updatePointMode = function(id, mode) {
     const pt = state.points.find(p => p.id === id);
     if (pt) {
@@ -1537,8 +1637,12 @@ window.updatePointMode = function(id, mode) {
     }
 };
 
-// 4. 删除单个点击点
-window.deletePoint = function(id) {
+// 5. 删除单个点击点
+window.deletePoint = function(id, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
     if (state.isClicking) return;
     state.points = state.points.filter(p => p.id !== id);
     renderPoints();
@@ -1546,7 +1650,7 @@ window.deletePoint = function(id) {
     syncPointsToHost();
 };
 
-// 5. 全部清空
+// 6. 全部清空
 function clearAllPoints() {
     if (state.isClicking) return;
     state.points = [];
@@ -1556,14 +1660,15 @@ function clearAllPoints() {
     syncPointsToHost();
 }
 
-// 6. 开始自动点击
+// 7. 开始自动点击
 function startClicking() {
-    if (state.points.length === 0) return;
+    // 过滤出真正有效的坐标
+    const enabledPoints = state.points.filter(p => p.enabled);
+    if (enabledPoints.length === 0) return;
     
     state.isClicking = true;
     updateUIStates();
     
-    // 向 C# 主机发送启动点击请求
     const configsJson = JSON.stringify(state.points);
     sendToHost("start_clicking", {
         configs: configsJson,
@@ -1571,14 +1676,13 @@ function startClicking() {
     });
 }
 
-// 7. 停止自动点击
+// 8. 停止自动点击
 function stopClicking() {
     if (!state.isClicking) return;
     
     state.isClicking = false;
     updateUIStates();
     
-    // 向 C# 主机发送停止点击请求
     sendToHost("stop_clicking");
     updateStatusBar('已终止连点任务。');
 }
@@ -1633,6 +1737,10 @@ function stopClicking() {
                     <div class="hotkey-row">
                         <label>清空全部标记坐标</label>
                         <input type="text" id="hk-clear-all" class="hotkey-input-box" readonly placeholder="点击开始录制">
+                    </div>
+                    <div class="hotkey-row">
+                        <label>快捷禁用/启用悬停点</label>
+                        <input type="text" id="hk-toggle-enable" class="hotkey-input-box" readonly placeholder="点击开始录制">
                     </div>
                 </div>
             </div>

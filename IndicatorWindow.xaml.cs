@@ -30,8 +30,9 @@ namespace AutoClicker
         public long PointId { get; private set; }
         private int _currentStyle = 2; // Default to Option 2 (Hollow Ring)
         private Storyboard? _pulseStoryboard;
+        private Storyboard? _highlightStoryboard;
 
-        public IndicatorWindow(long pointId, double screenX, double screenY, int styleType)
+        public IndicatorWindow(long pointId, double screenX, double screenY, int styleType, int number)
         {
             InitializeComponent();
             
@@ -41,6 +42,7 @@ namespace AutoClicker
             this.Left = screenX - 30;
             this.Top = screenY - 30;
             
+            SetNumber(number);
             SetStyle(styleType);
         }
 
@@ -58,6 +60,11 @@ namespace AutoClicker
         // PUBLIC METHODS
         // --------------------------------------------------------------------------
         
+        public void SetNumber(int number)
+        {
+            TxtNumber.Text = number.ToString();
+        }
+
         public void SetStyle(int styleType)
         {
             _currentStyle = styleType;
@@ -103,6 +110,15 @@ namespace AutoClicker
         {
             this.Left = screenX - 30;
             this.Top = screenY - 30;
+        }
+
+        public void TriggerHighlight()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _highlightStoryboard = (Storyboard)this.Resources["HighlightAnimation"];
+                _highlightStoryboard.Begin(this, true);
+            });
         }
     }
 }

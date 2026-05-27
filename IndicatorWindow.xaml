@@ -26,9 +26,27 @@
                 <EasingDoubleKeyFrame KeyTime="0:0:1.6" Value="0.5"/>
             </DoubleAnimationUsingKeyFrames>
         </Storyboard>
+
+        <!-- Hover Highlight Scale Animation -->
+        <Storyboard x:Key="HighlightAnimation">
+            <DoubleAnimation Storyboard.TargetName="scaleTrans" Storyboard.TargetProperty="ScaleX" To="1.35" Duration="0:0:0.15" AutoReverse="True">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="scaleTrans" Storyboard.TargetProperty="ScaleY" To="1.35" Duration="0:0:0.15" AutoReverse="True">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
     </Window.Resources>
     
-    <Grid HorizontalAlignment="Center" VerticalAlignment="Center" Width="60" Height="60">
+    <Grid x:Name="MainGrid" HorizontalAlignment="Center" VerticalAlignment="Center" Width="60" Height="60" RenderTransformOrigin="0.5,0.5">
+        <Grid.RenderTransform>
+            <ScaleTransform x:Name="scaleTrans" ScaleX="1" ScaleY="1"/>
+        </Grid.RenderTransform>
+
         <!-- Style 1: Solid Vibrant Red Dot -->
         <Grid x:Name="ContainerStyle1" Visibility="Collapsed">
             <Border Width="26" Height="26" Background="#EF4444" CornerRadius="13" BorderBrush="White" BorderThickness="1.5">
@@ -40,9 +58,7 @@
 
         <!-- Style 2: Hollow High-Precision Red Ring (Default Option 2) -->
         <Grid x:Name="ContainerStyle2" Visibility="Visible">
-            <Border Width="28" Height="28" Background="#25EF4444" CornerRadius="14" BorderBrush="#EF4444" BorderThickness="2">
-                <Ellipse Width="4" Height="4" Fill="#EF4444" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
+            <Border Width="28" Height="28" Background="#25EF4444" CornerRadius="14" BorderBrush="#EF4444" BorderThickness="2"/>
         </Grid>
 
         <!-- Style 3: Glowing Radial Neon Dot (Pulsing) -->
@@ -59,11 +75,6 @@
                     </RadialGradientBrush>
                 </Ellipse.Fill>
             </Ellipse>
-            <Ellipse Width="6" Height="6" Fill="White" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Ellipse.Effect>
-                    <DropShadowEffect BlurRadius="4" Color="#EF4444" Opacity="0.8" ShadowDepth="0"/>
-                </Ellipse.Effect>
-            </Ellipse>
         </Grid>
 
         <!-- Style 4: Minimalist Crosshair Target -->
@@ -71,7 +82,14 @@
             <Ellipse Width="24" Height="24" Stroke="#EF4444" StrokeThickness="1.5" Fill="Transparent" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             <Line X1="0" Y1="15" X2="30" Y2="15" Stroke="#EF4444" StrokeThickness="1"/>
             <Line X1="15" Y1="0" X2="15" Y2="30" Stroke="#EF4444" StrokeThickness="1"/>
-            <Ellipse Width="3" Height="3" Fill="#EF4444" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Grid>
+
+        <!-- Number Indicator in the exact center -->
+        <TextBlock x:Name="TxtNumber" Text="1" Foreground="White" FontSize="10" FontWeight="ExtraBold" 
+                   HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0">
+            <TextBlock.Effect>
+                <DropShadowEffect BlurRadius="4" Color="Black" Opacity="0.9" ShadowDepth="0"/>
+            </TextBlock.Effect>
+        </TextBlock>
     </Grid>
 </Window>
