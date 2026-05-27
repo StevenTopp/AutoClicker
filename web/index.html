@@ -1149,33 +1149,33 @@ let tempHotkeys = {};
 
 // UI 元素缓存
 const el = {
-    btnCapture: document.getElementById('btn-capture'),
-    btnClearAll: document.getElementById('btn-clear-all'),
-    btnStart: document.getElementById('btn-start'),
-    btnStop: document.getElementById('btn-stop'),
-    clickModeSelect: document.getElementById('click-mode-select'),
-    pointsCount: document.getElementById('points-count'),
-    pointsContainer: document.getElementById('points-list-container'),
-    emptyState: document.getElementById('empty-state'),
-    statusPulse: document.getElementById('status-pulse'),
-    statusBadge: document.getElementById('status-badge'),
-    statusBarText: document.getElementById('status-bar-text'),
-    shortcutsDisplayTag: document.getElementById('shortcuts-display-tag'),
+    get btnCapture() { return document.getElementById('btn-capture'); },
+    get btnClearAll() { return document.getElementById('btn-clear-all'); },
+    get btnStart() { return document.getElementById('btn-start'); },
+    get btnStop() { return document.getElementById('btn-stop'); },
+    get clickModeSelect() { return document.getElementById('click-mode-select'); },
+    get pointsCount() { return document.getElementById('points-count'); },
+    get pointsContainer() { return document.getElementById('points-list-container'); },
+    get emptyState() { return document.getElementById('empty-state'); },
+    get statusPulse() { return document.getElementById('status-pulse'); },
+    get statusBadge() { return document.getElementById('status-badge'); },
+    get statusBarText() { return document.getElementById('status-bar-text'); },
+    get shortcutsDisplayTag() { return document.getElementById('shortcuts-display-tag'); },
     
     // 设置面板相关
-    btnSettings: document.getElementById('btn-settings'),
-    settingsPanel: document.getElementById('settings-panel'),
-    btnCloseSettings: document.getElementById('btn-close-settings'),
-    btnSaveSettings: document.getElementById('btn-save-settings'),
-    btnResetSettings: document.getElementById('btn-reset-settings'),
-    styleCards: document.querySelectorAll('.style-option-card'),
+    get btnSettings() { return document.getElementById('btn-settings'); },
+    get settingsPanel() { return document.getElementById('settings-panel'); },
+    get btnCloseSettings() { return document.getElementById('btn-close-settings'); },
+    get btnSaveSettings() { return document.getElementById('btn-save-settings'); },
+    get btnResetSettings() { return document.getElementById('btn-reset-settings'); },
+    get styleCards() { return document.querySelectorAll('.style-option-card'); },
     
     // 快捷键输入框
-    hkCaptureStart: document.getElementById('hk-capture-start'),
-    hkCapturePoint: document.getElementById('hk-capture-point'),
-    hkClickToggle: document.getElementById('hk-click-toggle'),
-    hkClearAll: document.getElementById('hk-clear-all'),
-    hkToggleEnable: document.getElementById('hk-toggle-enable')
+    get hkCaptureStart() { return document.getElementById('hk-capture-start'); },
+    get hkCapturePoint() { return document.getElementById('hk-capture-point'); },
+    get hkClickToggle() { return document.getElementById('hk-click-toggle'); },
+    get hkClearAll() { return document.getElementById('hk-clear-all'); },
+    get hkToggleEnable() { return document.getElementById('hk-toggle-enable'); }
 };
 
 // ==========================================================================
